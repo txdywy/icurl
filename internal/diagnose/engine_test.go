@@ -48,6 +48,25 @@ func TestEngineRunsProbesAndClassifiesTLSInterruption(t *testing.T) {
 	}
 }
 
+func TestEngineHandlesMissingURL(t *testing.T) {
+	engine := Engine{Probes: []probe.Probe{&fakeProbe{}}}
+
+	result := engine.Run(context.Background(), Config{})
+
+	if result.Assessment.Level != evidence.AssessmentUnknown {
+		t.Fatalf("unexpected assessment level: %q", result.Assessment.Level)
+	}
+	if result.Assessment.Category != "INSUFFICIENT_EVIDENCE" {
+		t.Fatalf("unexpected assessment category: %q", result.Assessment.Category)
+	}
+	if result.Assessment.Summary != "diagnostic URL is missing" {
+		t.Fatalf("unexpected summary: %q", result.Assessment.Summary)
+	}
+	if len(result.ProbeResults) != 0 {
+		t.Fatalf("expected no probe results, got %d", len(result.ProbeResults))
+	}
+}
+
 func TestEngineUsesExplicitPort(t *testing.T) {
 	parsed, err := url.Parse("http://example.com:8080")
 	if err != nil {

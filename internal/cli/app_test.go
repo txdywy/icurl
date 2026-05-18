@@ -36,12 +36,14 @@ func (r *recordingRequester) Do(ctx context.Context, cfg request.Config) (reques
 }
 
 type recordingDiagnoser struct {
-	cfg diagnose.Config
+	cfg    diagnose.Config
+	called bool
 }
 
 func (d *recordingDiagnoser) Run(ctx context.Context, cfg diagnose.Config) diagnose.Result {
 	_ = ctx
 	d.cfg = cfg
+	d.called = true
 	return diagnose.Result{
 		Target: cfg.URL.String(),
 		Assessment: evidence.Assessment{
@@ -69,6 +71,42 @@ func TestRunRoutesDiagnoseCommand(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Assessment: SUSPICIOUS_HIGH TLS_SNI_INTERRUPTION_PATTERN") {
 		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+}
+
+func TestRunDiagnoseRejectsHostlessURL(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	diag := &recordingDiagnoser{}
+
+	code := Run(context.Background(), []string{"diagnose", "example.com"}, &stdout, &stderr, Dependencies{Diagnoser: diag})
+
+	if code != 2 {
+		t.Fatalf("expected exit code 2, got %d", code)
+	}
+	if diag.called {
+		t.Fatalf("diagnoser should not be called")
+	}
+	if !strings.Contains(stderr.String(), "icurl: invalid URL: expected http or https URL with host") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
+func TestRunDiagnoseRejectsRelativePath(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	diag := &recordingDiagnoser{}
+
+	code := Run(context.Background(), []string{"diagnose", "/path"}, &stdout, &stderr, Dependencies{Diagnoser: diag})
+
+	if code != 2 {
+		t.Fatalf("expected exit code 2, got %d", code)
+	}
+	if diag.called {
+		t.Fatalf("diagnoser should not be called")
+	}
+	if !strings.Contains(stderr.String(), "icurl: invalid URL: expected http or https URL with host") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
 

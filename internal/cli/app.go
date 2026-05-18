@@ -87,6 +87,10 @@ func runDiagnose(ctx context.Context, args []string, stdout io.Writer, stderr io
 		fmt.Fprintf(stderr, "icurl: invalid URL: %v\n", err)
 		return 2
 	}
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		fmt.Fprintln(stderr, "icurl: invalid URL: expected http or https URL with host")
+		return 2
+	}
 	if deps.Diagnoser == nil {
 		fmt.Fprintln(stderr, "icurl: diagnoser dependency is not configured")
 		return 2

@@ -26,6 +26,14 @@ type Engine struct {
 }
 
 func (e Engine) Run(ctx context.Context, cfg Config) Result {
+	if cfg.URL == nil {
+		return Result{Assessment: evidence.Assessment{
+			Level:    evidence.AssessmentUnknown,
+			Category: "INSUFFICIENT_EVIDENCE",
+			Summary:  "diagnostic URL is missing",
+		}}
+	}
+
 	target := probe.Target{
 		URL:  cfg.URL,
 		Host: cfg.URL.Hostname(),
