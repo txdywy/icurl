@@ -21,8 +21,13 @@ type Result struct {
 	CapturePath  string                 `json:"capture_path,omitempty"`
 }
 
+type PacketCapture interface {
+	Start(context.Context) (string, func() error, error)
+}
+
 type Engine struct {
-	Probes []probe.Probe
+	Probes  []probe.Probe
+	Capture PacketCapture
 }
 
 func (e Engine) Run(ctx context.Context, cfg Config) Result {
@@ -44,6 +49,15 @@ func (e Engine) Run(ctx context.Context, cfg Config) Result {
 		target.Port = defaultPort(cfg.URL.Scheme)
 	}
 
+	capturePath := ""
+	if cfg.Deep && e.Capture != nil {
+		path, stopCapture, err := e.Capture.Start(ctx)
+		if err == nil {
+			capturePath = path
+			defer stopCapture()
+		}
+	}
+
 	results := make([]evidence.ProbeResult, 0, len(e.Probes))
 	for _, p := range e.Probes {
 		results = append(results, p.Run(ctx, target))
@@ -53,6 +67,7 @@ func (e Engine) Run(ctx context.Context, cfg Config) Result {
 		Target:       cfg.URL.String(),
 		ProbeResults: results,
 		Assessment:   classifier.Classify(results),
+		CapturePath:  capturePath,
 	}
 }
 

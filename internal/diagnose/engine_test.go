@@ -20,6 +20,16 @@ func (p *fakeProbe) Run(ctx context.Context, target probe.Target) evidence.Probe
 	return p.result
 }
 
+type fakeCapture struct {
+	started bool
+}
+
+func (c *fakeCapture) Start(ctx context.Context) (string, func() error, error) {
+	_ = ctx
+	c.started = true
+	return "trace.pcap", func() error { return nil }, nil
+}
+
 func TestEngineRunsProbesAndClassifiesTLSInterruption(t *testing.T) {
 	parsed, err := url.Parse("https://example.com/path")
 	if err != nil {
@@ -79,5 +89,23 @@ func TestEngineUsesExplicitPort(t *testing.T) {
 
 	if p.target.Port != "8080" {
 		t.Fatalf("unexpected port: %q", p.target.Port)
+	}
+}
+
+func TestEngineStartsCaptureForDeepDiagnostics(t *testing.T) {
+	parsed, err := url.Parse("https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := &fakeCapture{}
+	engine := Engine{Capture: capture}
+
+	result := engine.Run(context.Background(), Config{URL: parsed, Deep: true})
+
+	if !capture.started {
+		t.Fatal("expected capture to start")
+	}
+	if result.CapturePath != "trace.pcap" {
+		t.Fatalf("unexpected capture path: %q", result.CapturePath)
 	}
 }
