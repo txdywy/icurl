@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
+	"icurl/internal/diagnose"
 	"icurl/internal/report"
 	"icurl/internal/request"
 )
@@ -16,8 +18,13 @@ type Requester interface {
 	Do(context.Context, request.Config) (request.Result, error)
 }
 
+type Diagnoser interface {
+	Run(context.Context, diagnose.Config) diagnose.Result
+}
+
 type Dependencies struct {
 	Requester Requester
+	Diagnoser Diagnoser
 }
 
 func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer, deps Dependencies) int {
@@ -27,8 +34,7 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 	}
 
 	if args[0] == "diagnose" {
-		fmt.Fprintln(stderr, "icurl: diagnose is not wired yet")
-		return 2
+		return runDiagnose(ctx, args[1:], stdout, stderr, deps)
 	}
 
 	cfg, err := parseRequestArgs(args, stderr)
@@ -54,6 +60,43 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 	if err != nil {
 		fmt.Fprintf(stderr, "icurl: %v\n", err)
 		return 1
+	}
+	return 0
+}
+
+func runDiagnose(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer, deps Dependencies) int {
+	fs := flag.NewFlagSet("icurl diagnose", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	var deep bool
+	var jsonOutput bool
+	fs.BoolVar(&deep, "deep", false, "run deep diagnostics")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON output")
+
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(stderr, "icurl: %v\n", err)
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "icurl: expected exactly one URL")
+		return 2
+	}
+
+	parsed, err := url.Parse(fs.Arg(0))
+	if err != nil {
+		fmt.Fprintf(stderr, "icurl: invalid URL: %v\n", err)
+		return 2
+	}
+	if deps.Diagnoser == nil {
+		fmt.Fprintln(stderr, "icurl: diagnoser dependency is not configured")
+		return 2
+	}
+
+	result := deps.Diagnoser.Run(ctx, diagnose.Config{URL: parsed, Deep: deep})
+	if jsonOutput {
+		fmt.Fprintf(stdout, "%+v\n", result)
+	} else {
+		fmt.Fprintf(stdout, "Assessment: %s %s\n", result.Assessment.Level, result.Assessment.Category)
 	}
 	return 0
 }

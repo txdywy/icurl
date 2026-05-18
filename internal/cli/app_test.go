@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"icurl/internal/diagnose"
+	"icurl/internal/evidence"
 	"icurl/internal/request"
 )
 
@@ -31,6 +33,43 @@ func (r *recordingRequester) Do(ctx context.Context, cfg request.Config) (reques
 	_ = ctx
 	r.cfg = cfg
 	return request.Result{StatusCode: 200, Protocol: "HTTP/1.1"}, nil
+}
+
+type recordingDiagnoser struct {
+	cfg diagnose.Config
+}
+
+func (d *recordingDiagnoser) Run(ctx context.Context, cfg diagnose.Config) diagnose.Result {
+	_ = ctx
+	d.cfg = cfg
+	return diagnose.Result{
+		Target: cfg.URL.String(),
+		Assessment: evidence.Assessment{
+			Level:    evidence.AssessmentSuspiciousHigh,
+			Category: "TLS_SNI_INTERRUPTION_PATTERN",
+		},
+	}
+}
+
+func TestRunRoutesDiagnoseCommand(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	diag := &recordingDiagnoser{}
+
+	code := Run(context.Background(), []string{"diagnose", "--deep", "https://example.com"}, &stdout, &stderr, Dependencies{Diagnoser: diag})
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d, stderr=%q", code, stderr.String())
+	}
+	if diag.cfg.URL == nil || diag.cfg.URL.String() != "https://example.com" {
+		t.Fatalf("unexpected diagnose URL: %#v", diag.cfg.URL)
+	}
+	if !diag.cfg.Deep {
+		t.Fatalf("expected deep diagnostics")
+	}
+	if !strings.Contains(stdout.String(), "Assessment: SUSPICIOUS_HIGH TLS_SNI_INTERRUPTION_PATTERN") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
 }
 
 func TestRunParsesRequestFlags(t *testing.T) {
