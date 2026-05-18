@@ -1,0 +1,11 @@
+# Local Claude/agent state
+.omc/
+.serena/
+
+# Go build and test artifacts
+/icurl
+*.test
+
+# Deep-diagnose packet captures
+*.pcap
+*.pcapng
