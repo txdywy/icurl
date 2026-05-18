@@ -53,7 +53,7 @@ func (c Capture) Start(ctx context.Context) (string, func() error, error) {
 	if outputDir == "" {
 		outputDir = "."
 	}
-	path := filepath.Join(outputDir, "icurl-trace-"+time.Now().Format("20060102-150405")+".pcap")
+	path := filepath.Join(outputDir, "icurl-trace-"+time.Now().Format("20060102-150405.000000000")+".pcap")
 	process, err := runner.Start(ctx, "sudo", "/usr/sbin/tcpdump", "-i", "any", "-s", "0", "-w", path)
 	if err != nil {
 		return "", nil, err
