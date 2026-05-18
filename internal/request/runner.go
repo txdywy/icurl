@@ -57,6 +57,10 @@ func (r *Runner) doHTTP3(ctx context.Context, cfg Config) (Result, error) {
 	}
 	transport, closeTransport, err := newHTTP3RoundTripper(cfg)
 	if err != nil {
+		if cfg.Protocol == ProtocolHTTP3 {
+			cfg.Protocol = ProtocolAuto
+			return r.doHTTP(ctx, cfg)
+		}
 		return Result{}, err
 	}
 	defer closeTransport()

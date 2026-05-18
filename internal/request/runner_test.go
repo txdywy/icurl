@@ -2,6 +2,7 @@ package request
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -90,6 +91,48 @@ func TestRunnerUsesHTTP3TransportWhenForced(t *testing.T) {
 	}
 	if string(result.Body) != "h3" {
 		t.Fatalf("expected body h3, got %q", string(result.Body))
+	}
+}
+
+func TestRunnerHTTP3TransportCreationErrorFallsBack(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("fallback"))
+	}))
+	defer server.Close()
+
+	runner := NewRunner()
+	runner.newHTTP3RoundTripper = func(Config) (http.RoundTripper, func() error, error) {
+		return nil, nil, errors.New("h3 transport failed")
+	}
+
+	result, err := runner.Do(context.Background(), Config{
+		URL:      server.URL,
+		Protocol: ProtocolHTTP3,
+	})
+	if err != nil {
+		t.Fatalf("Do returned error: %v", err)
+	}
+	if string(result.Body) != "fallback" {
+		t.Fatalf("expected fallback body, got %q", string(result.Body))
+	}
+	if result.Protocol != "HTTP/1.1" {
+		t.Fatalf("expected HTTP/1.1 fallback protocol, got %q", result.Protocol)
+	}
+}
+
+func TestRunnerHTTP3OnlyTransportCreationErrorDoesNotFallback(t *testing.T) {
+	expectedErr := errors.New("h3 transport failed")
+	runner := NewRunner()
+	runner.newHTTP3RoundTripper = func(Config) (http.RoundTripper, func() error, error) {
+		return nil, nil, expectedErr
+	}
+
+	_, err := runner.Do(context.Background(), Config{
+		URL:      "https://example.test/",
+		Protocol: ProtocolHTTP3Only,
+	})
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected HTTP/3-only error %v, got %v", expectedErr, err)
 	}
 }
 
