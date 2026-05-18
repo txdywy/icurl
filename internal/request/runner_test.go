@@ -5,8 +5,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestRunnerExecutesHTTP11Request(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +59,36 @@ func TestRunnerExecutesHTTP11Request(t *testing.T) {
 	}
 	if got := result.ResponseHeaders.Get("X-Response"); got != "present" {
 		t.Fatalf("expected response header, got %q", got)
+	}
+}
+
+func TestRunnerUsesHTTP3TransportWhenForced(t *testing.T) {
+	runner := NewRunner()
+	runner.newHTTP3RoundTripper = func(Config) (http.RoundTripper, func() error, error) {
+		return roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Proto:      "HTTP/3.0",
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("h3")),
+				Request:    req,
+			}, nil
+		}), func() error { return nil }, nil
+	}
+
+	result, err := runner.Do(context.Background(), Config{
+		URL:      "https://example.test/",
+		Protocol: ProtocolHTTP3Only,
+	})
+	if err != nil {
+		t.Fatalf("Do returned error: %v", err)
+	}
+
+	if result.Protocol != "HTTP/3.0" {
+		t.Fatalf("expected HTTP/3.0, got %q", result.Protocol)
+	}
+	if string(result.Body) != "h3" {
+		t.Fatalf("expected body h3, got %q", string(result.Body))
 	}
 }
 

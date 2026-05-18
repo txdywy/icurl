@@ -3,33 +3,32 @@ package request
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/quic-go/quic-go/http3"
 )
 
-type Runner struct{}
+type Runner struct {
+	newHTTP3RoundTripper func(Config) (http.RoundTripper, func() error, error)
+}
 
 func NewRunner() *Runner {
-	return &Runner{}
+	return &Runner{newHTTP3RoundTripper: defaultHTTP3RoundTripper}
 }
 
 func (r *Runner) Do(ctx context.Context, cfg Config) (Result, error) {
 	if cfg.Protocol == ProtocolHTTP3 || cfg.Protocol == ProtocolHTTP3Only {
-		return Result{}, errors.New("HTTP/3 runner is not configured")
+		return r.doHTTP3(ctx, cfg)
 	}
+	return r.doHTTP(ctx, cfg)
+}
 
-	if cfg.MaxTime > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, cfg.MaxTime)
-		defer cancel()
-	}
-
-	started := time.Now()
+func (r *Runner) doHTTP(ctx context.Context, cfg Config) (Result, error) {
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout: cfg.ConnectTimeout,
@@ -42,6 +41,41 @@ func (r *Runner) Do(ctx context.Context, cfg Config) (Result, error) {
 	}
 	defer transport.CloseIdleConnections()
 
+	return execute(ctx, cfg, transport)
+}
+
+func (r *Runner) doHTTP3(ctx context.Context, cfg Config) (Result, error) {
+	newHTTP3RoundTripper := r.newHTTP3RoundTripper
+	if newHTTP3RoundTripper == nil {
+		newHTTP3RoundTripper = defaultHTTP3RoundTripper
+	}
+	transport, closeTransport, err := newHTTP3RoundTripper(cfg)
+	if err != nil {
+		return Result{}, err
+	}
+	defer closeTransport()
+
+	result, err := execute(ctx, cfg, transport)
+	if err != nil && cfg.Protocol == ProtocolHTTP3 {
+		cfg.Protocol = ProtocolAuto
+		return r.doHTTP(ctx, cfg)
+	}
+	return result, err
+}
+
+func defaultHTTP3RoundTripper(Config) (http.RoundTripper, func() error, error) {
+	transport := &http3.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13}}
+	return transport, transport.Close, nil
+}
+
+func execute(ctx context.Context, cfg Config, transport http.RoundTripper) (Result, error) {
+	if cfg.MaxTime > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.MaxTime)
+		defer cancel()
+	}
+
+	started := time.Now()
 	var redirects []Redirect
 	client := &http.Client{Transport: transport}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
