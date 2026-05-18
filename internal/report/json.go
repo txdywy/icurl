@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"icurl/internal/diagnose"
 	"icurl/internal/request"
 )
 
@@ -31,4 +32,10 @@ func WriteRequestJSON(w io.Writer, result request.Result) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(payload)
+}
+
+func WriteDiagnoseJSON(w io.Writer, result diagnose.Result) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(result)
 }

@@ -98,9 +98,13 @@ func runDiagnose(ctx context.Context, args []string, stdout io.Writer, stderr io
 
 	result := deps.Diagnoser.Run(ctx, diagnose.Config{URL: parsed, Deep: deep})
 	if jsonOutput {
-		fmt.Fprintf(stdout, "%+v\n", result)
+		err = report.WriteDiagnoseJSON(stdout, result)
 	} else {
-		fmt.Fprintf(stdout, "Assessment: %s %s\n", result.Assessment.Level, result.Assessment.Category)
+		err = report.WriteDiagnoseHuman(stdout, result)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "icurl: %v\n", err)
+		return 1
 	}
 	return 0
 }

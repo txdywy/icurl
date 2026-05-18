@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
+	"icurl/internal/diagnose"
+	"icurl/internal/evidence"
 	"icurl/internal/request"
 )
 
@@ -52,5 +55,53 @@ func TestWriteRequestJSONIsStable(t *testing.T) {
 	}
 	if got["protocol"] != "HTTP/2.0" {
 		t.Fatalf("unexpected protocol %#v", got["protocol"])
+	}
+}
+
+func TestWriteDiagnoseHumanIncludesAssessmentAndLayers(t *testing.T) {
+	var out bytes.Buffer
+	result := diagnose.Result{
+		Target: "https://example.com",
+		ProbeResults: []evidence.ProbeResult{
+			{Layer: evidence.LayerDNS, Result: evidence.ResultOK},
+			{Layer: evidence.LayerTLS, Result: evidence.ResultFailed, ErrorMessage: "reset before certificate"},
+		},
+		Assessment: evidence.Assessment{
+			Level:    evidence.AssessmentSuspiciousHigh,
+			Category: "TLS_SNI_INTERRUPTION_PATTERN",
+			Summary:  "TLS interrupted",
+		},
+	}
+
+	err := WriteDiagnoseHuman(&out, result)
+
+	if err != nil {
+		t.Fatalf("WriteDiagnoseHuman returned error: %v", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "Layer summary") {
+		t.Fatalf("output missing layer summary: %q", output)
+	}
+	if !strings.Contains(output, "TLS_SNI_INTERRUPTION_PATTERN") {
+		t.Fatalf("output missing category: %q", output)
+	}
+}
+
+func TestWriteDiagnoseJSONIncludesAssessment(t *testing.T) {
+	var out bytes.Buffer
+	result := diagnose.Result{
+		Assessment: evidence.Assessment{
+			Level:    evidence.AssessmentUnknown,
+			Category: "INSUFFICIENT_EVIDENCE",
+		},
+	}
+
+	err := WriteDiagnoseJSON(&out, result)
+
+	if err != nil {
+		t.Fatalf("WriteDiagnoseJSON returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "INSUFFICIENT_EVIDENCE") {
+		t.Fatalf("output missing assessment category: %q", out.String())
 	}
 }
