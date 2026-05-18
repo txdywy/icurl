@@ -33,11 +33,6 @@ type Config struct {
 	JSON           bool
 }
 
-type Result struct {
-	StatusCode int
-	Protocol   string
-}
-
 func (c Config) EffectiveMethod() string {
 	if c.Method != "" {
 		return strings.ToUpper(c.Method)
