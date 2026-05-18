@@ -75,7 +75,7 @@ func TestRunRoutesDiagnoseCommand(t *testing.T) {
 	if !diag.cfg.Deep {
 		t.Fatalf("expected deep diagnostics")
 	}
-	if !strings.Contains(stdout.String(), "Assessment: SUSPICIOUS_HIGH TLS_SNI_INTERRUPTION_PATTERN") {
+	if !strings.Contains(stdout.String(), "Category: TLS_SNI_INTERRUPTION_PATTERN") {
 		t.Fatalf("unexpected stdout: %q", stdout.String())
 	}
 }

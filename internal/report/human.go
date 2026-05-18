@@ -59,9 +59,6 @@ func WriteDiagnoseHuman(w io.Writer, result diagnose.Result) error {
 	if _, err := fmt.Fprintln(w, "Assessment:"); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "Assessment: %s %s\n", result.Assessment.Level, result.Assessment.Category); err != nil {
-		return err
-	}
 	if _, err := fmt.Fprintf(w, "  Level: %s\n", result.Assessment.Level); err != nil {
 		return err
 	}
