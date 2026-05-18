@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -89,6 +90,42 @@ func TestRunnerUsesHTTP3TransportWhenForced(t *testing.T) {
 	}
 	if string(result.Body) != "h3" {
 		t.Fatalf("expected body h3, got %q", string(result.Body))
+	}
+}
+
+func TestRunnerHTTP3FallbackReusesMaxTimeDeadline(t *testing.T) {
+	fallbackHit := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fallbackHit <- struct{}{}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	runner := NewRunner()
+	runner.newHTTP3RoundTripper = func(Config) (http.RoundTripper, func() error, error) {
+		return roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		}), func() error { return nil }, nil
+	}
+
+	started := time.Now()
+	_, err := runner.Do(context.Background(), Config{
+		URL:      server.URL,
+		Protocol: ProtocolHTTP3,
+		MaxTime:  20 * time.Millisecond,
+	})
+	duration := time.Since(started)
+	if err == nil {
+		t.Fatal("expected Do to return an error")
+	}
+	if duration >= 150*time.Millisecond {
+		t.Fatalf("expected fallback to reuse expired deadline, took %v", duration)
+	}
+	select {
+	case <-fallbackHit:
+		t.Fatal("expected fallback to reuse expired context before sending request")
+	default:
 	}
 }
 

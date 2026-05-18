@@ -22,6 +22,12 @@ func NewRunner() *Runner {
 }
 
 func (r *Runner) Do(ctx context.Context, cfg Config) (Result, error) {
+	if cfg.MaxTime > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.MaxTime)
+		defer cancel()
+	}
+
 	if cfg.Protocol == ProtocolHTTP3 || cfg.Protocol == ProtocolHTTP3Only {
 		return r.doHTTP3(ctx, cfg)
 	}
@@ -69,12 +75,6 @@ func defaultHTTP3RoundTripper(Config) (http.RoundTripper, func() error, error) {
 }
 
 func execute(ctx context.Context, cfg Config, transport http.RoundTripper) (Result, error) {
-	if cfg.MaxTime > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, cfg.MaxTime)
-		defer cancel()
-	}
-
 	started := time.Now()
 	var redirects []Redirect
 	client := &http.Client{Transport: transport}
