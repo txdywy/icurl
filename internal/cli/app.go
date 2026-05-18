@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"icurl/internal/report"
 	"icurl/internal/request"
 )
 
@@ -45,7 +46,15 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 		fmt.Fprintf(stderr, "icurl: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "HTTP %d %s\n", result.StatusCode, result.Protocol)
+	if cfg.JSON {
+		err = report.WriteRequestJSON(stdout, result)
+	} else {
+		err = report.WriteRequestHuman(stdout, result, report.RequestHumanOptions{IncludeHeaders: cfg.IncludeHeaders})
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "icurl: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
