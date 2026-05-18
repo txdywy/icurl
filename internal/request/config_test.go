@@ -20,6 +20,13 @@ func TestHeaderListSetRejectsMissingColon(t *testing.T) {
 	}
 }
 
+func TestHeaderListSetRejectsEmptyName(t *testing.T) {
+	var headers HeaderList
+	if err := headers.Set(": value"); err == nil {
+		t.Fatal("expected error for empty header name")
+	}
+}
+
 func TestConfigMethodDefaultsToHeadWhenHeadIsTrue(t *testing.T) {
 	cfg := Config{Head: true}
 	if got := cfg.EffectiveMethod(); got != "HEAD" {

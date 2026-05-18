@@ -3,6 +3,7 @@ package request
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -55,7 +56,21 @@ type HeaderList struct {
 }
 
 func (h *HeaderList) String() string {
-	return fmt.Sprint(h.Values)
+	if h == nil || len(h.Values) == 0 {
+		return ""
+	}
+
+	keys := make([]string, 0, len(h.Values))
+	for key := range h.Values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s: %s", key, strings.Join(h.Values[key], ", ")))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func (h *HeaderList) Set(value string) error {
