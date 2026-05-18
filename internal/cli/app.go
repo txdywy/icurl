@@ -50,6 +50,22 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 	result, err := deps.Requester.Do(ctx, cfg)
 	if err != nil {
 		fmt.Fprintf(stderr, "icurl: %v\n", err)
+		if !cfg.Diagnose {
+			return 1
+		}
+		if deps.Diagnoser == nil {
+			fmt.Fprintln(stderr, "icurl: diagnoser dependency is not configured")
+			return 2
+		}
+		parsed, parseErr := parseDiagnoseURL(cfg.URL)
+		if parseErr != nil {
+			fmt.Fprintf(stderr, "icurl: invalid URL: %v\n", parseErr)
+			return 2
+		}
+		diagnoseResult := deps.Diagnoser.Run(ctx, diagnose.Config{URL: parsed, Deep: false})
+		if code := writeDiagnoseResult(stdout, stderr, diagnoseResult, cfg.JSON); code != 0 {
+			return code
+		}
 		return 1
 	}
 	if cfg.JSON {
@@ -82,21 +98,40 @@ func runDiagnose(ctx context.Context, args []string, stdout io.Writer, stderr io
 		return 2
 	}
 
-	parsed, err := url.Parse(fs.Arg(0))
+	parsed, err := parseDiagnoseURL(fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(stderr, "icurl: invalid URL: %v\n", err)
-		return 2
-	}
-	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
-		fmt.Fprintln(stderr, "icurl: invalid URL: expected http or https URL with host")
 		return 2
 	}
 	if deps.Diagnoser == nil {
 		fmt.Fprintln(stderr, "icurl: diagnoser dependency is not configured")
 		return 2
 	}
+	if deep {
+		fmt.Fprintln(stderr, "Deep diagnostics require sudo to run /usr/sbin/tcpdump.")
+		fmt.Fprintln(stderr, "Packet captures may contain sensitive data and are saved locally.")
+	}
 
 	result := deps.Diagnoser.Run(ctx, diagnose.Config{URL: parsed, Deep: deep})
+	if code := writeDiagnoseResult(stdout, stderr, result, jsonOutput); code != 0 {
+		return code
+	}
+	return 0
+}
+
+func parseDiagnoseURL(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return nil, fmt.Errorf("expected http or https URL with host")
+	}
+	return parsed, nil
+}
+
+func writeDiagnoseResult(stdout, stderr io.Writer, result diagnose.Result, jsonOutput bool) int {
+	var err error
 	if jsonOutput {
 		err = report.WriteDiagnoseJSON(stdout, result)
 	} else {
