@@ -82,4 +82,13 @@ func TestRunnerFollowsRedirectWhenEnabled(t *testing.T) {
 	if len(result.Redirects) != 1 {
 		t.Fatalf("expected one redirect, got %d", len(result.Redirects))
 	}
+	if result.Redirects[0].StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect status 302, got %d", result.Redirects[0].StatusCode)
+	}
+	if result.Redirects[0].From == "" {
+		t.Fatal("expected redirect From to be populated")
+	}
+	if result.Redirects[0].To == "" {
+		t.Fatal("expected redirect To to be populated")
+	}
 }

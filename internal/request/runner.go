@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -39,38 +40,61 @@ func (r *Runner) Do(ctx context.Context, cfg Config) (Result, error) {
 	if cfg.Protocol == ProtocolHTTP11 {
 		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
 	}
+	defer transport.CloseIdleConnections()
 
 	var redirects []Redirect
 	client := &http.Client{Transport: transport}
-	if !cfg.FollowRedirect {
-		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-	} else {
-		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			previous := via[len(via)-1]
-			redirects = append(redirects, Redirect{URL: previous.URL.String()})
-			return nil
-		}
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
 
-	req, err := http.NewRequestWithContext(ctx, cfg.EffectiveMethod(), cfg.URL, strings.NewReader(cfg.Body))
-	if err != nil {
-		return Result{}, err
-	}
-	for key, values := range cfg.Headers {
-		for _, value := range values {
-			req.Header.Add(key, value)
+	method := cfg.EffectiveMethod()
+	body := cfg.Body
+	currentURL := cfg.URL
+	var resp *http.Response
+	for {
+		req, err := http.NewRequestWithContext(ctx, method, currentURL, strings.NewReader(body))
+		if err != nil {
+			return Result{}, err
 		}
-	}
+		for key, values := range cfg.Headers {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return Result{}, err
+		resp, err = client.Do(req)
+		if err != nil {
+			return Result{}, err
+		}
+
+		location := resp.Header.Get("Location")
+		if !cfg.FollowRedirect || location == "" || (resp.StatusCode != http.StatusMovedPermanently && resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther && resp.StatusCode != http.StatusTemporaryRedirect && resp.StatusCode != http.StatusPermanentRedirect) {
+			break
+		}
+		if len(redirects) >= 10 {
+			resp.Body.Close()
+			return Result{}, fmt.Errorf("stopped after 10 redirects")
+		}
+
+		nextURL, err := resp.Request.URL.Parse(location)
+		if err != nil {
+			resp.Body.Close()
+			return Result{}, err
+		}
+		redirects = append(redirects, Redirect{From: resp.Request.URL.String(), To: nextURL.String(), StatusCode: resp.StatusCode})
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		currentURL = nextURL.String()
+		if resp.StatusCode == http.StatusSeeOther || ((resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound) && method == http.MethodPost) {
+			method = http.MethodGet
+			body = ""
+		}
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return Result{}, err
 	}
@@ -80,7 +104,7 @@ func (r *Runner) Do(ctx context.Context, cfg Config) (Result, error) {
 		StatusCode:      resp.StatusCode,
 		Protocol:        resp.Proto,
 		ResponseHeaders: resp.Header.Clone(),
-		Body:            body,
+		Body:            responseBody,
 		Timing:          Timing{Total: time.Since(started)},
 		Redirects:       redirects,
 	}, nil

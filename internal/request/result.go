@@ -10,7 +10,8 @@ type Timing struct {
 }
 
 type Redirect struct {
-	URL        string
+	From       string
+	To         string
 	StatusCode int
 }
 
