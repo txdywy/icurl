@@ -44,6 +44,28 @@ func TestRunNegotiatesWithLocalTLSServer(t *testing.T) {
 	}
 }
 
+func TestRunReportsCertificateError(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+
+	addr := server.Listener.Addr().String()
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("SplitHostPort returned error: %v", err)
+	}
+
+	result := Probe{InsecureSkipVerify: false}.Run(context.Background(), probe.Target{Host: "127.0.0.1", Port: port})
+
+	if result.Result != evidence.ResultFailed {
+		t.Fatalf("unexpected result: want %s got %s", evidence.ResultFailed, result.Result)
+	}
+	if result.ErrorKind != evidence.ErrorCertificate {
+		t.Fatalf("unexpected error kind: want %s got %s: %s", evidence.ErrorCertificate, result.ErrorKind, result.ErrorMessage)
+	}
+}
+
 func assertObservation(t *testing.T, observations []string, want string) {
 	t.Helper()
 	for _, observation := range observations {

@@ -35,6 +35,15 @@ func TestClassifyTLSInterruption(t *testing.T) {
 	assertAssessment(t, assessment, evidence.AssessmentSuspiciousHigh, "TLS_SNI_INTERRUPTION_PATTERN")
 }
 
+func TestClassifyTLSCertificateError(t *testing.T) {
+	assessment := Classify([]evidence.ProbeResult{
+		{ProbeName: "tcp", Layer: evidence.LayerTCP, Result: evidence.ResultOK, ErrorKind: evidence.ErrorNone},
+		{ProbeName: "tls", Layer: evidence.LayerTLS, Result: evidence.ResultFailed, ErrorKind: evidence.ErrorCertificate, ErrorMessage: "certificate expired"},
+	})
+
+	assertAssessment(t, assessment, evidence.AssessmentFail, "TLS_CERTIFICATE_ERROR")
+}
+
 func TestClassifyQUICBlockage(t *testing.T) {
 	assessment := Classify([]evidence.ProbeResult{
 		{ProbeName: "tcp", Layer: evidence.LayerTCP, Result: evidence.ResultOK, ErrorKind: evidence.ErrorNone},

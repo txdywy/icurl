@@ -38,7 +38,9 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 		finish(&result, evidence.ResultFailed, kind, err.Error())
 		return result
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	result.RemoteAddress = conn.RemoteAddr().String()
 	result.LocalAddress = conn.LocalAddr().String()

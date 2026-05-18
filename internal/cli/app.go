@@ -39,27 +39,27 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 
 	cfg, err := parseRequestArgs(args, stderr)
 	if err != nil {
-		fmt.Fprintf(stderr, "icurl: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "icurl: %v\n", err)
 		return 2
 	}
 	if deps.Requester == nil {
-		fmt.Fprintln(stderr, "icurl: requester dependency is not configured")
+		_, _ = fmt.Fprintln(stderr, "icurl: requester dependency is not configured")
 		return 2
 	}
 
 	result, err := deps.Requester.Do(ctx, cfg)
 	if err != nil {
-		fmt.Fprintf(stderr, "icurl: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "icurl: %v\n", err)
 		if !cfg.Diagnose {
 			return 1
 		}
 		if deps.Diagnoser == nil {
-			fmt.Fprintln(stderr, "icurl: diagnoser dependency is not configured")
+			_, _ = fmt.Fprintln(stderr, "icurl: diagnoser dependency is not configured")
 			return 2
 		}
 		parsed, parseErr := parseDiagnoseURL(cfg.URL)
 		if parseErr != nil {
-			fmt.Fprintf(stderr, "icurl: invalid URL: %v\n", parseErr)
+			_, _ = fmt.Fprintf(stderr, "icurl: invalid URL: %v\n", parseErr)
 			return 2
 		}
 		diagnoseResult := deps.Diagnoser.Run(ctx, diagnose.Config{URL: parsed, Deep: false})
@@ -74,7 +74,7 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 		err = report.WriteRequestHuman(stdout, result, report.RequestHumanOptions{IncludeHeaders: cfg.IncludeHeaders})
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "icurl: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "icurl: %v\n", err)
 		return 1
 	}
 	return 0
@@ -90,26 +90,26 @@ func runDiagnose(ctx context.Context, args []string, stdout io.Writer, stderr io
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON output")
 
 	if err := fs.Parse(args); err != nil {
-		fmt.Fprintf(stderr, "icurl: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "icurl: %v\n", err)
 		return 2
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "icurl: expected exactly one URL")
+		_, _ = fmt.Fprintln(stderr, "icurl: expected exactly one URL")
 		return 2
 	}
 
 	parsed, err := parseDiagnoseURL(fs.Arg(0))
 	if err != nil {
-		fmt.Fprintf(stderr, "icurl: invalid URL: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "icurl: invalid URL: %v\n", err)
 		return 2
 	}
 	if deps.Diagnoser == nil {
-		fmt.Fprintln(stderr, "icurl: diagnoser dependency is not configured")
+		_, _ = fmt.Fprintln(stderr, "icurl: diagnoser dependency is not configured")
 		return 2
 	}
 	if deep {
-		fmt.Fprintln(stderr, "Deep diagnostics require sudo to run /usr/sbin/tcpdump.")
-		fmt.Fprintln(stderr, "Packet captures may contain sensitive data and are saved locally.")
+		_, _ = fmt.Fprintln(stderr, "Deep diagnostics require sudo to run /usr/sbin/tcpdump.")
+		_, _ = fmt.Fprintln(stderr, "Packet captures may contain sensitive data and are saved locally.")
 	}
 
 	result := deps.Diagnoser.Run(ctx, diagnose.Config{URL: parsed, Deep: deep})
@@ -138,7 +138,7 @@ func writeDiagnoseResult(stdout, stderr io.Writer, result diagnose.Result, jsonO
 		err = report.WriteDiagnoseHuman(stdout, result)
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "icurl: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "icurl: %v\n", err)
 		return 1
 	}
 	return 0
@@ -228,6 +228,6 @@ func parseRequestArgs(args []string, stderr io.Writer) (request.Config, error) {
 }
 
 func printUsage(stderr io.Writer) {
-	fmt.Fprintln(stderr, "usage: icurl [options] URL")
-	fmt.Fprintln(stderr, "       icurl diagnose [options] URL")
+	_, _ = fmt.Fprintln(stderr, "usage: icurl [options] URL")
+	_, _ = fmt.Fprintln(stderr, "       icurl diagnose [options] URL")
 }

@@ -8,6 +8,9 @@ func Classify(results []evidence.ProbeResult) evidence.Assessment {
 	if hasDNSInterference(results) {
 		return assessment(evidence.AssessmentSuspiciousHigh, "DNS_INTERFERENCE_PATTERN", "DNS response pattern suggests interference.", reasons)
 	}
+	if hasCertificateError(results) {
+		return assessment(evidence.AssessmentFail, "TLS_CERTIFICATE_ERROR", "TCP connects but TLS fails due to a certificate error.", reasons)
+	}
 	if hasTLSInterruption(results) {
 		return assessment(evidence.AssessmentSuspiciousHigh, "TLS_SNI_INTERRUPTION_PATTERN", "TCP succeeds but TLS is reset, suggesting TLS/SNI interruption.", reasons)
 	}
@@ -56,7 +59,13 @@ func hasDNSInterference(results []evidence.ProbeResult) bool {
 }
 
 func hasTLSInterruption(results []evidence.ProbeResult) bool {
-	return hasLayerResult(results, evidence.LayerTCP, evidence.ResultOK) && hasLayerFailure(results, evidence.LayerTLS, evidence.ErrorReset)
+	return hasLayerResult(results, evidence.LayerTCP, evidence.ResultOK) &&
+		(hasLayerFailure(results, evidence.LayerTLS, evidence.ErrorReset) || hasLayerFailure(results, evidence.LayerTLS, evidence.ErrorUnknown)) &&
+		hasLayerResult(results, evidence.LayerTLS, evidence.ResultFailed)
+}
+
+func hasCertificateError(results []evidence.ProbeResult) bool {
+	return hasLayerResult(results, evidence.LayerTCP, evidence.ResultOK) && hasLayerFailure(results, evidence.LayerTLS, evidence.ErrorCertificate)
 }
 
 func hasQUICBlockage(results []evidence.ProbeResult) bool {

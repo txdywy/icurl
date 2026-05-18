@@ -36,7 +36,9 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 		finish(&result, evidence.ResultFailed, evidence.ErrorUnknown, err.Error())
 		return result
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	result.RemoteAddress = conn.RemoteAddr().String()
 	result.LocalAddress = conn.LocalAddr().String()
@@ -48,7 +50,18 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 	})
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		result.Observations = []string{"TLS handshake did not complete"}
-		finish(&result, evidence.ResultFailed, evidence.ErrorReset, err.Error())
+		kind := evidence.ErrorReset
+		if _, ok := err.(*tls.CertificateVerificationError); ok {
+			kind = evidence.ErrorCertificate
+		} else {
+			errStr := err.Error()
+			if len(errStr) > 4 && errStr[:4] == "tls:" {
+				if len(errStr) > 33 && errStr[:33] == "tls: failed to verify certificate" {
+					kind = evidence.ErrorCertificate
+				}
+			}
+		}
+		finish(&result, evidence.ResultFailed, kind, err.Error())
 		return result
 	}
 

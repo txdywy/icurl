@@ -54,7 +54,9 @@ func (e Engine) Run(ctx context.Context, cfg Config) Result {
 		path, stopCapture, err := e.Capture.Start(ctx)
 		if err == nil {
 			capturePath = path
-			defer stopCapture()
+			defer func() {
+				_ = stopCapture()
+			}()
 		}
 	}
 

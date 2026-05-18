@@ -63,7 +63,9 @@ func (r *Runner) doHTTP3(ctx context.Context, cfg Config) (Result, error) {
 		}
 		return Result{}, err
 	}
-	defer closeTransport()
+	defer func() {
+		_ = closeTransport()
+	}()
 
 	result, err := execute(ctx, cfg, transport)
 	if err != nil && cfg.Protocol == ProtocolHTTP3 {
@@ -111,18 +113,18 @@ func execute(ctx context.Context, cfg Config, transport http.RoundTripper) (Resu
 			break
 		}
 		if len(redirects) >= 10 {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return Result{}, fmt.Errorf("stopped after 10 redirects")
 		}
 
 		nextURL, err := resp.Request.URL.Parse(location)
 		if err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return Result{}, err
 		}
 		redirects = append(redirects, Redirect{From: resp.Request.URL.String(), To: nextURL.String(), StatusCode: resp.StatusCode})
 		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		currentURL = nextURL.String()
 		if resp.StatusCode == http.StatusSeeOther || ((resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound) && method == http.MethodPost) {
@@ -130,7 +132,9 @@ func execute(ctx context.Context, cfg Config, transport http.RoundTripper) (Resu
 			body = ""
 		}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -14,13 +14,15 @@ func TestRunConnectsToLocalListener(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen returned error: %v", err)
 	}
-	defer listener.Close()
+	defer func() {
+		_ = listener.Close()
+	}()
 
 	accepted := make(chan struct{})
 	go func() {
 		conn, err := listener.Accept()
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 		}
 		close(accepted)
 	}()
