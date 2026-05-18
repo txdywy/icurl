@@ -56,8 +56,10 @@ func TestRunnerExecutesHTTP11Request(t *testing.T) {
 	if result.Protocol != "HTTP/1.1" {
 		t.Fatalf("expected HTTP/1.1, got %q", result.Protocol)
 	}
-	if string(result.Body) != "hello" {
-		t.Fatalf("expected body hello, got %q", string(result.Body))
+	defer result.Body.Close()
+	resultBody, _ := io.ReadAll(result.Body)
+	if string(resultBody) != "hello" {
+		t.Fatalf("expected body hello, got %q", string(resultBody))
 	}
 	if got := result.ResponseHeaders.Get("X-Response"); got != "present" {
 		t.Fatalf("expected response header, got %q", got)
@@ -89,8 +91,10 @@ func TestRunnerUsesHTTP3TransportWhenForced(t *testing.T) {
 	if result.Protocol != "HTTP/3.0" {
 		t.Fatalf("expected HTTP/3.0, got %q", result.Protocol)
 	}
-	if string(result.Body) != "h3" {
-		t.Fatalf("expected body h3, got %q", string(result.Body))
+	defer result.Body.Close()
+	resultBody, _ := io.ReadAll(result.Body)
+	if string(resultBody) != "h3" {
+		t.Fatalf("expected body h3, got %q", string(resultBody))
 	}
 }
 
@@ -112,8 +116,10 @@ func TestRunnerHTTP3TransportCreationErrorFallsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do returned error: %v", err)
 	}
-	if string(result.Body) != "fallback" {
-		t.Fatalf("expected fallback body, got %q", string(result.Body))
+	defer result.Body.Close()
+	resultBody, _ := io.ReadAll(result.Body)
+	if string(resultBody) != "fallback" {
+		t.Fatalf("expected fallback body, got %q", string(resultBody))
 	}
 	if result.Protocol != "HTTP/1.1" {
 		t.Fatalf("expected HTTP/1.1 fallback protocol, got %q", result.Protocol)
@@ -192,9 +198,10 @@ func TestRunnerFollowsRedirectWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do returned error: %v", err)
 	}
-
-	if string(result.Body) != "final" {
-		t.Fatalf("expected body final, got %q", string(result.Body))
+	defer result.Body.Close()
+	resultBody, _ := io.ReadAll(result.Body)
+	if string(resultBody) != "final" {
+		t.Fatalf("expected body final, got %q", string(resultBody))
 	}
 	if len(result.Redirects) != 1 {
 		t.Fatalf("expected one redirect, got %d", len(result.Redirects))

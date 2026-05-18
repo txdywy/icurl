@@ -3,6 +3,7 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func TestWriteRequestHumanIncludesHeadersWhenRequested(t *testing.T) {
 		ResponseHeaders: http.Header{
 			"Content-Type": []string{"text/plain"},
 		},
-		Body: []byte("hello"),
+		Body: io.NopCloser(bytes.NewReader([]byte("hello"))),
 	}
 
 	err := WriteRequestHuman(&out, result, RequestHumanOptions{IncludeHeaders: true})

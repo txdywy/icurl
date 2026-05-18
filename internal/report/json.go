@@ -20,12 +20,17 @@ type requestJSON struct {
 }
 
 func WriteRequestJSON(w io.Writer, result request.Result) error {
+	var bodyBytes []byte
+	if result.Body != nil {
+		bodyBytes, _ = io.ReadAll(result.Body)
+		_ = result.Body.Close()
+	}
 	payload := requestJSON{
 		URL:        result.URL,
 		StatusCode: result.StatusCode,
 		Protocol:   result.Protocol,
 		Headers:    result.ResponseHeaders,
-		BodyBase64: base64.StdEncoding.EncodeToString(result.Body),
+		BodyBase64: base64.StdEncoding.EncodeToString(bodyBytes),
 		Redirects:  result.Redirects,
 	}
 

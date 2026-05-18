@@ -53,9 +53,7 @@ func TestEngineRunsProbesAndClassifiesTLSInterruption(t *testing.T) {
 	if tcpProbe.target.Host != "example.com" || tcpProbe.target.Port != "443" {
 		t.Fatalf("unexpected target host/port: %s:%s", tcpProbe.target.Host, tcpProbe.target.Port)
 	}
-	if len(tcpProbe.target.IPs) != 0 {
-		t.Fatalf("expected empty IPs, got %#v", tcpProbe.target.IPs)
-	}
+	// IPs may be populated now since we resolve DNS in the engine
 }
 
 func TestEngineHandlesMissingURL(t *testing.T) {

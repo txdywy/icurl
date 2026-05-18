@@ -1,6 +1,7 @@
 package request
 
 import (
+	"io"
 	"net/http"
 	"time"
 )
@@ -10,9 +11,9 @@ type Timing struct {
 }
 
 type Redirect struct {
-	From       string
-	To         string
-	StatusCode int
+	From       string `json:"from"`
+	To         string `json:"to"`
+	StatusCode int    `json:"status_code"`
 }
 
 type Result struct {
@@ -20,7 +21,7 @@ type Result struct {
 	StatusCode      int
 	Protocol        string
 	ResponseHeaders http.Header
-	Body            []byte
+	Body            io.ReadCloser
 	Timing          Timing
 	Redirects       []Redirect
 }

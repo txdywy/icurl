@@ -2,7 +2,9 @@ package diagnose
 
 import (
 	"context"
+	"net"
 	"net/url"
+	"sync"
 
 	"icurl/internal/classifier"
 	"icurl/internal/evidence"
@@ -49,6 +51,12 @@ func (e Engine) Run(ctx context.Context, cfg Config) Result {
 		target.Port = defaultPort(cfg.URL.Scheme)
 	}
 
+	// Unify DNS resolution at the engine level
+	ips, err := net.LookupIP(target.Host)
+	if err == nil && len(ips) > 0 {
+		target.IPs = ips
+	}
+
 	capturePath := ""
 	if cfg.Deep && e.Capture != nil {
 		path, stopCapture, err := e.Capture.Start(ctx)
@@ -61,9 +69,20 @@ func (e Engine) Run(ctx context.Context, cfg Config) Result {
 	}
 
 	results := make([]evidence.ProbeResult, 0, len(e.Probes))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
 	for _, p := range e.Probes {
-		results = append(results, p.Run(ctx, target))
+		wg.Add(1)
+		go func(pr probe.Probe) {
+			defer wg.Done()
+			res := pr.Run(ctx, target)
+			mu.Lock()
+			results = append(results, res)
+			mu.Unlock()
+		}(p)
 	}
+	wg.Wait()
 
 	return Result{
 		Target:       cfg.URL.String(),

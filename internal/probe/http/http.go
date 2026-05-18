@@ -3,6 +3,7 @@ package httpprobe
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -34,8 +35,17 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 		return result
 	}
 
+	urlStr := target.URL.String()
+	if len(target.IPs) > 0 {
+		// Replace hostname with IP to skip DNS resolution
+		u := *target.URL
+		u.Host = net.JoinHostPort(target.IPs[0].String(), target.Port)
+		urlStr = u.String()
+	}
+
 	response, err := p.Runner.Do(ctx, request.Config{
-		URL:            target.URL.String(),
+		URL:            urlStr,
+		Host:           target.Host, // Pass explicit host for SNI
 		Method:         http.MethodHead,
 		Protocol:       request.ProtocolAuto,
 		MaxTime:        10 * time.Second,

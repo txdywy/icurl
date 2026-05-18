@@ -37,8 +37,12 @@ func WriteRequestHuman(w io.Writer, result request.Result, opts RequestHumanOpti
 		}
 	}
 
-	_, err := w.Write(result.Body)
-	return err
+	if result.Body != nil {
+		_, err := io.Copy(w, result.Body)
+		_ = result.Body.Close()
+		return err
+	}
+	return nil
 }
 
 func WriteDiagnoseHuman(w io.Writer, result diagnose.Result) error {

@@ -8,18 +8,19 @@ import (
 	"time"
 )
 
-type ProtocolMode string
+type Protocol string
 
 const (
-	ProtocolAuto      ProtocolMode = "auto"
-	ProtocolHTTP11    ProtocolMode = "http1.1"
-	ProtocolHTTP2     ProtocolMode = "http2"
-	ProtocolHTTP3     ProtocolMode = "http3"
-	ProtocolHTTP3Only ProtocolMode = "http3-only"
+	ProtocolAuto      Protocol = "auto"
+	ProtocolHTTP11    Protocol = "http1.1"
+	ProtocolHTTP2     Protocol = "http2"
+	ProtocolHTTP3     Protocol = "http3"
+	ProtocolHTTP3Only Protocol = "http3-only"
 )
 
 type Config struct {
 	URL            string
+	Host           string // explicit host to use for SNI/Host header
 	Method         string
 	Headers        http.Header
 	Body           string
@@ -28,17 +29,17 @@ type Config struct {
 	FollowRedirect bool
 	ConnectTimeout time.Duration
 	MaxTime        time.Duration
-	Protocol       ProtocolMode
+	Protocol       Protocol
 	Diagnose       bool
 	JSON           bool
 }
 
 func (c Config) EffectiveMethod() string {
-	if c.Method != "" {
-		return strings.ToUpper(c.Method)
-	}
 	if c.Head {
 		return http.MethodHead
+	}
+	if c.Method != "" {
+		return strings.ToUpper(c.Method)
 	}
 	if c.Body != "" {
 		return http.MethodPost

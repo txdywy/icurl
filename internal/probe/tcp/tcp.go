@@ -29,6 +29,12 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 		timeout = 5 * time.Second
 	}
 	dialer := net.Dialer{Timeout: timeout}
+	
+	// Fast path: use already resolved IP if available
+	if len(target.IPs) > 0 {
+		address = net.JoinHostPort(target.IPs[0].String(), target.Port)
+	}
+
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
 		kind := evidence.ErrorUnknown
