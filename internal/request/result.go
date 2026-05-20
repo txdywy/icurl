@@ -24,4 +24,5 @@ type Result struct {
 	Body            io.ReadCloser
 	Timing          Timing
 	Redirects       []Redirect
+	closeTransport  func() error
 }

@@ -10,16 +10,19 @@ import (
 )
 
 type fakeResolver struct {
-	ips []net.IP
-	err error
+	ips    []net.IP
+	err    error
+	called bool
 }
 
-func (r fakeResolver) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
+func (r *fakeResolver) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
+	r.called = true
 	return r.ips, r.err
 }
 
 func TestRunAcceptsPublicAddress(t *testing.T) {
-	result := Probe{Resolver: fakeResolver{ips: []net.IP{net.ParseIP("93.184.216.34")}}}.Run(context.Background(), probe.Target{Host: "example.com"})
+	resolver := &fakeResolver{ips: []net.IP{net.ParseIP("93.184.216.34")}}
+	result := Probe{Resolver: resolver}.Run(context.Background(), probe.Target{Host: "example.com"})
 
 	if result.Result != evidence.ResultOK {
 		t.Fatalf("unexpected result: want %s got %s", evidence.ResultOK, result.Result)
@@ -34,7 +37,8 @@ func TestRunAcceptsPublicAddress(t *testing.T) {
 }
 
 func TestRunFlagsDocumentationAddress(t *testing.T) {
-	result := Probe{Resolver: fakeResolver{ips: []net.IP{net.ParseIP("203.0.113.10")}}}.Run(context.Background(), probe.Target{Host: "example.com"})
+	resolver := &fakeResolver{ips: []net.IP{net.ParseIP("203.0.113.10")}}
+	result := Probe{Resolver: resolver}.Run(context.Background(), probe.Target{Host: "example.com"})
 
 	if result.Result != evidence.ResultFailed {
 		t.Fatalf("unexpected result: want %s got %s", evidence.ResultFailed, result.Result)
@@ -43,6 +47,22 @@ func TestRunFlagsDocumentationAddress(t *testing.T) {
 		t.Fatalf("unexpected error kind: want %s got %s", evidence.ErrorSuspiciousDNS, result.ErrorKind)
 	}
 	assertBaseFields(t, result)
+}
+
+func TestRunUsesPreResolvedAddresses(t *testing.T) {
+	resolver := &fakeResolver{ips: []net.IP{net.ParseIP("203.0.113.10")}}
+
+	result := Probe{Resolver: resolver}.Run(context.Background(), probe.Target{Host: "example.com", IPs: []net.IP{net.ParseIP("93.184.216.34")}})
+
+	if resolver.called {
+		t.Fatal("expected pre-resolved target IPs to skip resolver lookup")
+	}
+	if result.Result != evidence.ResultOK {
+		t.Fatalf("unexpected result: want %s got %s", evidence.ResultOK, result.Result)
+	}
+	if len(result.Observations) != 1 || result.Observations[0] != "resolved 93.184.216.34" {
+		t.Fatalf("unexpected observations: %#v", result.Observations)
+	}
 }
 
 func assertBaseFields(t *testing.T, result evidence.ProbeResult) {

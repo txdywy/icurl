@@ -30,12 +30,20 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 	}
 	dialer := net.Dialer{Timeout: timeout}
 	
-	// Fast path: use already resolved IP if available
+	var conn net.Conn
+	var err error
 	if len(target.IPs) > 0 {
-		address = net.JoinHostPort(target.IPs[0].String(), target.Port)
+		for _, ip := range target.IPs {
+			addr := net.JoinHostPort(ip.String(), target.Port)
+			conn, err = dialer.DialContext(ctx, "tcp", addr)
+			if err == nil {
+				break
+			}
+		}
+	} else {
+		conn, err = dialer.DialContext(ctx, "tcp", address)
 	}
 
-	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
 		kind := evidence.ErrorUnknown
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {

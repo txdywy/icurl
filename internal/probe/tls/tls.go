@@ -3,7 +3,9 @@ package tlsprobe
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
+	"strings"
 	"time"
 
 	"icurl/internal/evidence"
@@ -32,14 +34,28 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 	}
 	dialer := net.Dialer{Timeout: timeout}
 
-	// Fast path: use already resolved IP if available
+	var conn net.Conn
+	var err error
 	if len(target.IPs) > 0 {
-		address = net.JoinHostPort(target.IPs[0].String(), target.Port)
+		for _, ip := range target.IPs {
+			addr := net.JoinHostPort(ip.String(), target.Port)
+			conn, err = dialer.DialContext(ctx, "tcp", addr)
+			if err == nil {
+				break
+			}
+		}
+	} else {
+		conn, err = dialer.DialContext(ctx, "tcp", address)
 	}
 
-	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
-		finish(&result, evidence.ResultFailed, evidence.ErrorUnknown, err.Error())
+		kind := evidence.ErrorUnknown
+		res := evidence.ResultFailed
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			kind = evidence.ErrorTimeout
+			res = evidence.ResultTimeout
+		}
+		finish(&result, res, kind, err.Error())
 		return result
 	}
 	defer func() {
@@ -57,17 +73,21 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		result.Observations = []string{"TLS handshake did not complete"}
 		kind := evidence.ErrorReset
+		res := evidence.ResultFailed
 		if _, ok := err.(*tls.CertificateVerificationError); ok {
 			kind = evidence.ErrorCertificate
 		} else {
 			errStr := err.Error()
-			if len(errStr) > 4 && errStr[:4] == "tls:" {
+			if errors.Is(err, context.DeadlineExceeded) || strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline") {
+				kind = evidence.ErrorTimeout
+				res = evidence.ResultTimeout
+			} else if len(errStr) > 4 && errStr[:4] == "tls:" {
 				if len(errStr) > 33 && errStr[:33] == "tls: failed to verify certificate" {
 					kind = evidence.ErrorCertificate
 				}
 			}
 		}
-		finish(&result, evidence.ResultFailed, kind, err.Error())
+		finish(&result, res, kind, err.Error())
 		return result
 	}
 

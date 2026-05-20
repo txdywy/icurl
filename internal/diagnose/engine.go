@@ -4,11 +4,13 @@ import (
 	"context"
 	"net"
 	"net/url"
+	"strings"
 	"sync"
 
 	"icurl/internal/classifier"
 	"icurl/internal/evidence"
 	"icurl/internal/probe"
+	dnsprobe "icurl/internal/probe/dns"
 )
 
 type Config struct {
@@ -51,10 +53,38 @@ func (e Engine) Run(ctx context.Context, cfg Config) Result {
 		target.Port = defaultPort(cfg.URL.Scheme)
 	}
 
-	// Unify DNS resolution at the engine level
-	ips, err := net.LookupIP(target.Host)
-	if err == nil && len(ips) > 0 {
-		target.IPs = ips
+	results := make([]evidence.ProbeResult, len(e.Probes))
+
+	dnsIndex := -1
+	var dnsProbe probe.Probe
+	for i, p := range e.Probes {
+		if _, ok := p.(dnsprobe.Probe); ok {
+			dnsIndex = i
+			dnsProbe = p
+			break
+		}
+	}
+
+	if dnsProbe != nil {
+		results[dnsIndex] = dnsProbe.Run(ctx, target)
+		if results[dnsIndex].Result == evidence.ResultOK {
+			var targetIPs []net.IP
+			for _, obs := range results[dnsIndex].Observations {
+				if strings.HasPrefix(obs, "resolved ") {
+					ipStr := strings.TrimPrefix(obs, "resolved ")
+					if ip := net.ParseIP(ipStr); ip != nil {
+						targetIPs = append(targetIPs, ip)
+					}
+				}
+			}
+			target.IPs = targetIPs
+		}
+	} else {
+		// Fallback pre-lookup using DefaultResolver if DNS probe is not in list
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", target.Host)
+		if err == nil && len(ips) > 0 {
+			target.IPs = ips
+		}
 	}
 
 	capturePath := ""
@@ -68,19 +98,17 @@ func (e Engine) Run(ctx context.Context, cfg Config) Result {
 		}
 	}
 
-	results := make([]evidence.ProbeResult, 0, len(e.Probes))
 	var wg sync.WaitGroup
-	var mu sync.Mutex
 
-	for _, p := range e.Probes {
+	for i, p := range e.Probes {
+		if i == dnsIndex {
+			continue
+		}
 		wg.Add(1)
-		go func(pr probe.Probe) {
+		go func(index int, pr probe.Probe) {
 			defer wg.Done()
-			res := pr.Run(ctx, target)
-			mu.Lock()
-			results = append(results, res)
-			mu.Unlock()
-		}(p)
+			results[index] = pr.Run(ctx, target)
+		}(i, p)
 	}
 	wg.Wait()
 

@@ -17,6 +17,12 @@ type Probe struct {
 	Resolver Resolver
 }
 
+var documentationNetworks = mustParseCIDRs(
+	"192.0.2.0/24",
+	"198.51.100.0/24",
+	"203.0.113.0/24",
+)
+
 func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResult {
 	started := time.Now()
 	result := evidence.ProbeResult{
@@ -27,15 +33,19 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 		Confidence: evidence.ConfidenceObserved,
 	}
 
-	resolver := p.Resolver
-	if resolver == nil {
-		resolver = net.DefaultResolver
-	}
+	ips := target.IPs
+	if len(ips) == 0 {
+		resolver := p.Resolver
+		if resolver == nil {
+			resolver = net.DefaultResolver
+		}
 
-	ips, err := resolver.LookupIP(ctx, "ip", target.Host)
-	if err != nil {
-		finish(&result, evidence.ResultFailed, evidence.ErrorUnknown, err.Error())
-		return result
+		resolved, err := resolver.LookupIP(ctx, "ip", target.Host)
+		if err != nil {
+			finish(&result, evidence.ResultFailed, evidence.ErrorUnknown, err.Error())
+			return result
+		}
+		ips = resolved
 	}
 	if len(ips) == 0 {
 		finish(&result, evidence.ResultFailed, evidence.ErrorUnknown, "resolver returned no addresses")
@@ -55,22 +65,30 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 }
 
 func isSuspicious(ip net.IP) bool {
-	parsed := net.ParseIP(ip.String())
-	if parsed == nil {
+	if ip == nil {
 		return true
 	}
-	if parsed.IsLoopback() || parsed.IsPrivate() || parsed.IsMulticast() || parsed.IsUnspecified() {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsMulticast() || ip.IsUnspecified() {
 		return true
 	}
-	return inCIDR(parsed, "192.0.2.0/24") || inCIDR(parsed, "198.51.100.0/24") || inCIDR(parsed, "203.0.113.0/24")
+	for _, network := range documentationNetworks {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
-func inCIDR(ip net.IP, cidr string) bool {
-	_, network, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return false
+func mustParseCIDRs(cidrs ...string) []*net.IPNet {
+	networks := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(err)
+		}
+		networks = append(networks, network)
 	}
-	return network.Contains(ip)
+	return networks
 }
 
 func finish(result *evidence.ProbeResult, probeResult evidence.Result, kind evidence.ErrorKind, message string) {

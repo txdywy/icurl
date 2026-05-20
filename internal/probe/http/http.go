@@ -2,9 +2,11 @@ package httpprobe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"icurl/internal/evidence"
@@ -35,25 +37,59 @@ func (p Probe) Run(ctx context.Context, target probe.Target) evidence.ProbeResul
 		return result
 	}
 
-	urlStr := target.URL.String()
-	if len(target.IPs) > 0 {
-		// Replace hostname with IP to skip DNS resolution
-		u := *target.URL
-		u.Host = net.JoinHostPort(target.IPs[0].String(), target.Port)
-		urlStr = u.String()
+	var response request.Result
+	var err error
+
+	ips := target.IPs
+	if len(ips) == 0 {
+		response, err = p.Runner.Do(ctx, request.Config{
+			URL:            target.URL.String(),
+			Host:           target.Host,
+			Method:         http.MethodHead,
+			Protocol:       request.ProtocolAuto,
+			MaxTime:        10 * time.Second,
+			ConnectTimeout: 5 * time.Second,
+		})
+	} else {
+		for _, ip := range ips {
+			u := *target.URL
+			u.Host = net.JoinHostPort(ip.String(), target.Port)
+			response, err = p.Runner.Do(ctx, request.Config{
+				URL:            u.String(),
+				Host:           target.Host,
+				Method:         http.MethodHead,
+				Protocol:       request.ProtocolAuto,
+				MaxTime:        10 * time.Second,
+				ConnectTimeout: 5 * time.Second,
+			})
+			if err == nil {
+				break
+			}
+		}
 	}
 
-	response, err := p.Runner.Do(ctx, request.Config{
-		URL:            urlStr,
-		Host:           target.Host, // Pass explicit host for SNI
-		Method:         http.MethodHead,
-		Protocol:       request.ProtocolAuto,
-		MaxTime:        10 * time.Second,
-		ConnectTimeout: 5 * time.Second,
-	})
 	if err != nil {
-		finish(&result, evidence.ResultFailed, evidence.ErrorProtocol, err.Error())
+		kind := evidence.ErrorProtocol
+		res := evidence.ResultFailed
+		errStr := err.Error()
+		if errors.Is(err, context.DeadlineExceeded) || strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline") {
+			kind = evidence.ErrorTimeout
+			res = evidence.ResultTimeout
+		} else if strings.Contains(errStr, "refused") {
+			kind = evidence.ErrorRefused
+		} else if strings.Contains(errStr, "reset") {
+			kind = evidence.ErrorReset
+		} else if strings.Contains(errStr, "certificate") || strings.Contains(errStr, "x509") {
+			kind = evidence.ErrorCertificate
+		}
+		finish(&result, res, kind, err.Error())
 		return result
+	}
+
+	if response.Body != nil {
+		defer func() {
+			_ = response.Body.Close()
+		}()
 	}
 
 	if response.StatusCode >= 400 {

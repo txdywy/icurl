@@ -21,19 +21,63 @@ func NewRunner() *Runner {
 	return &Runner{newHTTP3RoundTripper: defaultHTTP3RoundTripper}
 }
 
+type responseBody struct {
+	io.ReadCloser
+	onClose []func() error
+}
+
+func (b *responseBody) Close() error {
+	var firstErr error
+	if err := b.ReadCloser.Close(); err != nil {
+		firstErr = err
+	}
+	for _, fn := range b.onClose {
+		if fn != nil {
+			if err := fn(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
 func (r *Runner) Do(ctx context.Context, cfg Config) (Result, error) {
+	var cancel context.CancelFunc
 	if cfg.MaxTime > 0 {
-		// Do NOT cancel context when Do returns, because Body is read asynchronously
-		// instead, just use the context for dialing and request header timeouts if desired,
-		// but since we read body outside, we must not cancel it yet.
-		// A proper fix would be adding MaxTime into a custom Reader on Body,
-		// but for now we remove the hard timeout here to avoid context canceled errors.
+		ctx, cancel = context.WithTimeout(ctx, cfg.MaxTime)
 	}
 
+	var res Result
+	var err error
 	if cfg.Protocol == ProtocolHTTP3 || cfg.Protocol == ProtocolHTTP3Only {
-		return r.doHTTP3(ctx, cfg)
+		res, err = r.doHTTP3(ctx, cfg)
+	} else {
+		res, err = r.doHTTP(ctx, cfg)
 	}
-	return r.doHTTP(ctx, cfg)
+
+	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
+		return Result{}, err
+	}
+
+	bodyWrapper := &responseBody{
+		ReadCloser: res.Body,
+		onClose:    make([]func() error, 0, 2),
+	}
+	if cancel != nil {
+		bodyWrapper.onClose = append(bodyWrapper.onClose, func() error {
+			cancel()
+			return nil
+		})
+	}
+	if res.closeTransport != nil {
+		bodyWrapper.onClose = append(bodyWrapper.onClose, res.closeTransport)
+	}
+	res.Body = bodyWrapper
+
+	return res, nil
 }
 
 func (r *Runner) doHTTP(ctx context.Context, cfg Config) (Result, error) {
@@ -50,9 +94,17 @@ func (r *Runner) doHTTP(ctx context.Context, cfg Config) (Result, error) {
 	if cfg.Protocol == ProtocolHTTP11 {
 		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
 	}
-	// We can't defer close transport yet because the stream reads it later
-	// But we're removing defer cancel() from Do()
-	return execute(ctx, cfg, transport)
+
+	res, err := execute(ctx, cfg, transport)
+	if err != nil {
+		transport.CloseIdleConnections()
+		return Result{}, err
+	}
+	res.closeTransport = func() error {
+		transport.CloseIdleConnections()
+		return nil
+	}
+	return res, nil
 }
 
 func (r *Runner) doHTTP3(ctx context.Context, cfg Config) (Result, error) {
@@ -68,16 +120,18 @@ func (r *Runner) doHTTP3(ctx context.Context, cfg Config) (Result, error) {
 		}
 		return Result{}, err
 	}
-	
+
 	result, err := execute(ctx, cfg, transport)
-	if err != nil && cfg.Protocol == ProtocolHTTP3 {
+	if err != nil {
 		_ = closeTransport() // Only close on error fallback
-		cfg.Protocol = ProtocolAuto
-		return r.doHTTP(ctx, cfg)
+		if cfg.Protocol == ProtocolHTTP3 {
+			cfg.Protocol = ProtocolAuto
+			return r.doHTTP(ctx, cfg)
+		}
+		return Result{}, err
 	}
-	// Note: We leak HTTP/3 transport until program exits. 
-	// To avoid this properly, result.Body needs to wrap closeTransport
-	return result, err
+	result.closeTransport = closeTransport
+	return result, nil
 }
 
 func defaultHTTP3RoundTripper(cfg Config) (http.RoundTripper, func() error, error) {

@@ -20,8 +20,6 @@ type execRunner struct{}
 
 func (execRunner) Start(ctx context.Context, name string, args ...string) (Process, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
