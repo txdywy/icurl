@@ -1,9 +1,7 @@
-use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::net::TcpStream;
-use tokio::time::timeout;
 use crate::evidence::{ErrorKind, Layer, ProbeResult, ProbeResultStatus};
 use crate::probe::{BoxFuture, Probe, Target};
+use crate::probe::tcp_connect::{try_connect, record_addresses};
 
 pub struct TcpProbe {
     pub timeout: Duration,
@@ -16,6 +14,8 @@ impl TcpProbe {
 }
 
 impl Probe for TcpProbe {
+    fn probe_name(&self) -> &'static str { "TCP" }
+
     fn run<'a>(&'a self, target: &'a Target) -> BoxFuture<'a, ProbeResult> {
         Box::pin(async move {
             let address = format!("{}:{}", target.host, target.port);
@@ -27,54 +27,15 @@ impl Probe for TcpProbe {
                 self.timeout
             };
 
-            let mut conn = None;
-            let mut last_err = None;
-
-            if !target.ips.is_empty() {
-                for ip in &target.ips {
-                    let addr = SocketAddr::new(*ip, target.port);
-                    match timeout(timeout_duration, TcpStream::connect(addr)).await {
-                        Ok(Ok(stream)) => {
-                            conn = Some(stream);
-                            break;
-                        }
-                        Ok(Err(e)) => {
-                            last_err = Some((ErrorKind::Unknown, e.to_string()));
-                        }
-                        Err(_) => {
-                            last_err = Some((ErrorKind::Timeout, "connection timed out".to_string()));
-                        }
-                    }
+            match try_connect(&target.ips, &target.host, target.port, timeout_duration).await {
+                Ok(stream) => {
+                    record_addresses(&stream, &mut result);
+                    result.add_observation("TCP connect succeeded");
+                    result.finish(ProbeResultStatus::Ok, ErrorKind::None, "");
                 }
-            } else {
-                match timeout(timeout_duration, TcpStream::connect(&address)).await {
-                    Ok(Ok(stream)) => {
-                        conn = Some(stream);
-                    }
-                    Ok(Err(e)) => {
-                        last_err = Some((ErrorKind::Unknown, e.to_string()));
-                    }
-                    Err(_) => {
-                        last_err = Some((ErrorKind::Timeout, "connection timed out".to_string()));
-                    }
+                Err((kind, msg)) => {
+                    result.finish(ProbeResultStatus::Failed, kind, &msg);
                 }
-            }
-
-            if let Some(stream) = conn {
-                if let Ok(addr) = stream.peer_addr() {
-                    result.remote_address = Some(addr.to_string());
-                }
-                if let Ok(addr) = stream.local_addr() {
-                    result.local_address = Some(addr.to_string());
-                }
-                result.add_observation("TCP connect succeeded");
-                result.finish(ProbeResultStatus::Ok, ErrorKind::None, "");
-            } else {
-                let (kind, msg) = match last_err {
-                    Some((k, m)) => (k, m),
-                    _ => (ErrorKind::Unknown, "TCP connect failed".to_string()),
-                };
-                result.finish(ProbeResultStatus::Failed, kind, &msg);
             }
 
             result
@@ -91,7 +52,7 @@ mod tests {
     async fn test_tcp_probe_success() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         tokio::spawn(async move {
             let _ = listener.accept().await;
         });

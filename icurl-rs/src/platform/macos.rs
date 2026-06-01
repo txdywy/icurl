@@ -1,6 +1,6 @@
 use std::process::Stdio;
 use tokio::process::Command;
-use chrono::Local;
+use std::time::SystemTime;
 
 use crate::platform::{PacketCapture, CaptureSession, CompletedCapture, BoxFuture};
 
@@ -46,7 +46,10 @@ impl PacketCapture for MacosCapture {
                 self.output_dir.clone()
             };
 
-            let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
+            let timestamp = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
             let filename = format!("icurl-trace-{}.pcap", timestamp);
             let path = std::path::Path::new(&output_dir)
                 .join(filename)
@@ -54,7 +57,7 @@ impl PacketCapture for MacosCapture {
                 .to_string();
 
             let child = Command::new("sudo")
-                .args(&["/usr/sbin/tcpdump", "-i", "any", "-s", "0", "-w", &path])
+                .args(["/usr/sbin/tcpdump", "-i", "any", "-s", "0", "-w", &path])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()?;

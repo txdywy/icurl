@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use std::time::Instant;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -22,13 +22,13 @@ pub enum Layer {
 impl std::fmt::Display for Layer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Layer::Dns => write!(f, "DNS"),
-            Layer::Tcp => write!(f, "TCP"),
-            Layer::Tls => write!(f, "TLS"),
-            Layer::Http => write!(f, "HTTP"),
-            Layer::Udp => write!(f, "UDP"),
-            Layer::Quic => write!(f, "QUIC"),
-            Layer::Local => write!(f, "LOCAL"),
+            Layer::Dns => f.write_str("DNS"),
+            Layer::Tcp => f.write_str("TCP"),
+            Layer::Tls => f.write_str("TLS"),
+            Layer::Http => f.write_str("HTTP"),
+            Layer::Udp => f.write_str("UDP"),
+            Layer::Quic => f.write_str("QUIC"),
+            Layer::Local => f.write_str("LOCAL"),
         }
     }
 }
@@ -48,10 +48,10 @@ pub enum ProbeResultStatus {
 impl std::fmt::Display for ProbeResultStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProbeResultStatus::Ok => write!(f, "OK"),
-            ProbeResultStatus::Failed => write!(f, "FAILED"),
-            ProbeResultStatus::Timeout => write!(f, "TIMEOUT"),
-            ProbeResultStatus::Skipped => write!(f, "SKIPPED"),
+            ProbeResultStatus::Ok => f.write_str("OK"),
+            ProbeResultStatus::Failed => f.write_str("FAILED"),
+            ProbeResultStatus::Timeout => f.write_str("TIMEOUT"),
+            ProbeResultStatus::Skipped => f.write_str("SKIPPED"),
         }
     }
 }
@@ -83,16 +83,16 @@ pub enum ErrorKind {
 impl std::fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ErrorKind::None => write!(f, "NONE"),
-            ErrorKind::Timeout => write!(f, "TIMEOUT"),
-            ErrorKind::Refused => write!(f, "REFUSED"),
-            ErrorKind::Reset => write!(f, "RESET"),
-            ErrorKind::Unreachable => write!(f, "UNREACHABLE"),
-            ErrorKind::Certificate => write!(f, "CERTIFICATE"),
-            ErrorKind::Protocol => write!(f, "PROTOCOL"),
-            ErrorKind::SuspiciousDns => write!(f, "SUSPICIOUS_DNS"),
-            ErrorKind::Permission => write!(f, "PERMISSION"),
-            ErrorKind::Unknown => write!(f, "UNKNOWN"),
+            ErrorKind::None => f.write_str("NONE"),
+            ErrorKind::Timeout => f.write_str("TIMEOUT"),
+            ErrorKind::Refused => f.write_str("REFUSED"),
+            ErrorKind::Reset => f.write_str("RESET"),
+            ErrorKind::Unreachable => f.write_str("UNREACHABLE"),
+            ErrorKind::Certificate => f.write_str("CERTIFICATE"),
+            ErrorKind::Protocol => f.write_str("PROTOCOL"),
+            ErrorKind::SuspiciousDns => f.write_str("SUSPICIOUS_DNS"),
+            ErrorKind::Permission => f.write_str("PERMISSION"),
+            ErrorKind::Unknown => f.write_str("UNKNOWN"),
         }
     }
 }
@@ -124,12 +124,12 @@ pub enum AssessmentLevel {
 impl std::fmt::Display for AssessmentLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AssessmentLevel::Pass => write!(f, "PASS"),
-            AssessmentLevel::Fail => write!(f, "FAIL"),
-            AssessmentLevel::SuspiciousLow => write!(f, "SUSPICIOUS_LOW"),
-            AssessmentLevel::SuspiciousMedium => write!(f, "SUSPICIOUS_MEDIUM"),
-            AssessmentLevel::SuspiciousHigh => write!(f, "SUSPICIOUS_HIGH"),
-            AssessmentLevel::Unknown => write!(f, "UNKNOWN"),
+            AssessmentLevel::Pass => f.write_str("PASS"),
+            AssessmentLevel::Fail => f.write_str("FAIL"),
+            AssessmentLevel::SuspiciousLow => f.write_str("SUSPICIOUS_LOW"),
+            AssessmentLevel::SuspiciousMedium => f.write_str("SUSPICIOUS_MEDIUM"),
+            AssessmentLevel::SuspiciousHigh => f.write_str("SUSPICIOUS_HIGH"),
+            AssessmentLevel::Unknown => f.write_str("UNKNOWN"),
         }
     }
 }
@@ -143,11 +143,7 @@ pub struct ProbeResult {
     pub remote_address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub local_address: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub finished_at: Option<DateTime<Utc>>,
-    pub duration_ns: i64,
+    pub duration_ns: u64,
     pub result: ProbeResultStatus,
     pub error_kind: ErrorKind,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -155,33 +151,32 @@ pub struct ProbeResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub observations: Option<Vec<String>>,
     pub confidence: Confidence,
+    #[serde(skip)]
+    start_time: Option<Instant>,
 }
 
 impl ProbeResult {
-    pub fn new(probe_name: &str, layer: Layer, target: &str) -> Self {
+    pub fn new(probe_name: &'static str, layer: Layer, target: &str) -> Self {
         Self {
             probe_name: probe_name.to_string(),
             layer,
             target: target.to_string(),
             remote_address: None,
             local_address: None,
-            started_at: Some(Utc::now()),
-            finished_at: None,
             duration_ns: 0,
             result: ProbeResultStatus::Skipped,
             error_kind: ErrorKind::None,
             error_message: None,
             observations: None,
             confidence: Confidence::Observed,
+            start_time: Some(Instant::now()),
         }
     }
 
     pub fn finish(&mut self, status: ProbeResultStatus, kind: ErrorKind, message: &str) {
-        let now = Utc::now();
-        if let Some(started) = self.started_at {
-            self.duration_ns = (now - started).num_nanoseconds().unwrap_or(0);
+        if let Some(start) = self.start_time.take() {
+            self.duration_ns = start.elapsed().as_nanos() as u64;
         }
-        self.finished_at = Some(now);
         self.result = status;
         self.error_kind = kind;
         if !message.is_empty() {
@@ -211,4 +206,20 @@ pub struct Assessment {
     pub summary: String,
     pub reasons: Vec<String>,
     pub next_steps: Vec<String>,
+}
+
+/// Classify an error string into an ErrorKind + ProbeResultStatus.
+/// Used by HTTP, QUIC, and TLS probes to avoid repeating the same match logic.
+pub fn classify_error_string(err: &str) -> (ProbeResultStatus, ErrorKind) {
+    if err.contains("timeout") || err.contains("deadline") || err.contains("timed out") {
+        (ProbeResultStatus::Timeout, ErrorKind::Timeout)
+    } else if err.contains("refused") {
+        (ProbeResultStatus::Failed, ErrorKind::Refused)
+    } else if err.contains("reset") {
+        (ProbeResultStatus::Failed, ErrorKind::Reset)
+    } else if err.contains("certificate") || err.contains("cert") || err.contains("WebPki") {
+        (ProbeResultStatus::Failed, ErrorKind::Certificate)
+    } else {
+        (ProbeResultStatus::Failed, ErrorKind::Unknown)
+    }
 }

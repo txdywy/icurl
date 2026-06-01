@@ -1,4 +1,4 @@
-use crate::evidence::{ErrorKind, Layer, ProbeResult, ProbeResultStatus};
+use crate::evidence::{classify_error_string, ErrorKind, Layer, ProbeResult, ProbeResultStatus};
 use crate::probe::{BoxFuture, Probe, Target};
 use crate::request::{Config as ReqConfig, Protocol as ReqProtocol, execute as request_execute};
 use std::time::Duration;
@@ -6,9 +6,11 @@ use std::time::Duration;
 pub struct HttpProbe;
 
 impl Probe for HttpProbe {
+    fn probe_name(&self) -> &'static str { "HTTP" }
+
     fn run<'a>(&'a self, target: &'a Target) -> BoxFuture<'a, ProbeResult> {
         Box::pin(async move {
-            let mut result = ProbeResult::new("HTTP", Layer::Http, &target.url.to_string());
+            let mut result = ProbeResult::new("HTTP", Layer::Http, target.url.as_ref());
 
             let mut response = None;
             let mut last_err = None;
@@ -69,21 +71,8 @@ impl Probe for HttpProbe {
                 }
             } else {
                 let err_str = last_err.unwrap_or_else(|| "HTTP request failed".to_string());
-                let mut kind = ErrorKind::Protocol;
-                let mut res_status = ProbeResultStatus::Failed;
-
-                if err_str.contains("timeout") || err_str.contains("deadline") || err_str.contains("timed out") {
-                    kind = ErrorKind::Timeout;
-                    res_status = ProbeResultStatus::Timeout;
-                } else if err_str.contains("refused") {
-                    kind = ErrorKind::Refused;
-                } else if err_str.contains("reset") {
-                    kind = ErrorKind::Reset;
-                } else if err_str.contains("certificate") || err_str.contains("cert") || err_str.contains("WebPki") {
-                    kind = ErrorKind::Certificate;
-                }
-
-                result.finish(res_status, kind, &err_str);
+                let (status, kind) = classify_error_string(&err_str);
+                result.finish(status, kind, &err_str);
             }
 
             result

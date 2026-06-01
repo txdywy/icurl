@@ -69,43 +69,58 @@ pub fn is_suspicious(ip: IpAddr) -> bool {
     false
 }
 
+/// Structured DNS probe result with extracted IPs.
+pub struct DnsResult {
+    pub probe_result: ProbeResult,
+    pub resolved_ips: Vec<IpAddr>,
+}
+
 impl Probe for DnsProbe {
+    fn probe_name(&self) -> &'static str { "DNS" }
+
     fn run<'a>(&'a self, target: &'a Target) -> BoxFuture<'a, ProbeResult> {
         Box::pin(async move {
-            let mut result = ProbeResult::new("DNS", Layer::Dns, &target.host);
-            
-            let ips = if !target.ips.is_empty() {
-                target.ips.clone()
-            } else {
-                match self.resolver.lookup_ip(&target.host, target.port).await {
-                    Ok(resolved) => resolved,
-                    Err(e) => {
-                        result.finish(ProbeResultStatus::Failed, ErrorKind::Unknown, &e.to_string());
-                        return result;
-                    }
-                }
-            };
-
-            if ips.is_empty() {
-                result.finish(ProbeResultStatus::Failed, ErrorKind::Unknown, "resolver returned no addresses");
-                return result;
-            }
-
-            for ip in ips {
-                result.add_observation(&format!("resolved {}", ip));
-                if is_suspicious(ip) {
-                    result.finish(
-                        ProbeResultStatus::Failed,
-                        ErrorKind::SuspiciousDns,
-                        &format!("resolver returned suspicious address {}", ip),
-                    );
-                    return result;
-                }
-            }
-
-            result.finish(ProbeResultStatus::Ok, ErrorKind::None, "");
-            result
+            self.run_dns(target).await.probe_result
         })
+    }
+}
+
+impl DnsProbe {
+    /// Run DNS probe and return structured result with extracted IPs.
+    pub async fn run_dns<'a>(&'a self, target: &'a Target) -> DnsResult {
+        let mut result = ProbeResult::new("DNS", Layer::Dns, &target.host);
+
+        let ips = if !target.ips.is_empty() {
+            target.ips.clone()
+        } else {
+            match self.resolver.lookup_ip(&target.host, target.port).await {
+                Ok(resolved) => resolved,
+                Err(e) => {
+                    result.finish(ProbeResultStatus::Failed, ErrorKind::Unknown, &e.to_string());
+                    return DnsResult { probe_result: result, resolved_ips: Vec::new() };
+                }
+            }
+        };
+
+        if ips.is_empty() {
+            result.finish(ProbeResultStatus::Failed, ErrorKind::Unknown, "resolver returned no addresses");
+            return DnsResult { probe_result: result, resolved_ips: Vec::new() };
+        }
+
+        for ip in &ips {
+            result.add_observation(&format!("resolved {}", ip));
+            if is_suspicious(*ip) {
+                result.finish(
+                    ProbeResultStatus::Failed,
+                    ErrorKind::SuspiciousDns,
+                    &format!("resolver returned suspicious address {}", ip),
+                );
+                return DnsResult { probe_result: result, resolved_ips: ips };
+            }
+        }
+
+        result.finish(ProbeResultStatus::Ok, ErrorKind::None, "");
+        DnsResult { probe_result: result, resolved_ips: ips }
     }
 }
 
@@ -144,9 +159,10 @@ mod tests {
             port: 443,
             ips: vec![],
         };
-        let res = probe.run(&target).await;
-        assert_eq!(res.result, ProbeResultStatus::Failed);
-        assert_eq!(res.error_kind, ErrorKind::SuspiciousDns);
+        let dns_res = probe.run_dns(&target).await;
+        assert_eq!(dns_res.probe_result.result, ProbeResultStatus::Failed);
+        assert_eq!(dns_res.probe_result.error_kind, ErrorKind::SuspiciousDns);
+        assert!(!dns_res.resolved_ips.is_empty());
     }
 
     #[tokio::test]
@@ -162,8 +178,9 @@ mod tests {
             port: 443,
             ips: vec![],
         };
-        let res = probe.run(&target).await;
-        assert_eq!(res.result, ProbeResultStatus::Ok);
-        assert_eq!(res.error_kind, ErrorKind::None);
+        let dns_res = probe.run_dns(&target).await;
+        assert_eq!(dns_res.probe_result.result, ProbeResultStatus::Ok);
+        assert_eq!(dns_res.probe_result.error_kind, ErrorKind::None);
+        assert_eq!(dns_res.resolved_ips.len(), 1);
     }
 }

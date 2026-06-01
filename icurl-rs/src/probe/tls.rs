@@ -1,15 +1,14 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::TcpStream;
-use tokio::time::timeout;
 use tokio_rustls::TlsConnector;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::client::danger::{ServerCertVerifier, HandshakeSignatureValid, ServerCertVerified};
 use rustls::{DigitallySignedStruct, SignatureScheme, Error as RustlsError};
 
-use crate::evidence::{ErrorKind, Layer, ProbeResult, ProbeResultStatus};
+use crate::evidence::{classify_error_string, ErrorKind, Layer, ProbeResult, ProbeResultStatus};
 use crate::probe::{BoxFuture, Probe, Target};
+use crate::probe::tcp_connect::{try_connect, record_addresses};
+use tokio::time::timeout;
 
 #[derive(Debug)]
 struct DummyVerifier;
@@ -75,6 +74,8 @@ impl TlsProbe {
 }
 
 impl Probe for TlsProbe {
+    fn probe_name(&self) -> &'static str { "TLS" }
+
     fn run<'a>(&'a self, target: &'a Target) -> BoxFuture<'a, ProbeResult> {
         Box::pin(async move {
             let address = format!("{}:{}", target.host, target.port);
@@ -86,58 +87,16 @@ impl Probe for TlsProbe {
                 self.timeout
             };
 
-            // 1. TCP Connect
-            let mut conn = None;
-            let mut last_err = None;
-
-            if !target.ips.is_empty() {
-                for ip in &target.ips {
-                    let addr = SocketAddr::new(*ip, target.port);
-                    match timeout(timeout_duration, TcpStream::connect(addr)).await {
-                        Ok(Ok(stream)) => {
-                            conn = Some(stream);
-                            break;
-                        }
-                        Ok(Err(e)) => {
-                            last_err = Some((ErrorKind::Unknown, e.to_string()));
-                        }
-                        Err(_) => {
-                            last_err = Some((ErrorKind::Timeout, "connection timed out".to_string()));
-                        }
-                    }
-                }
-            } else {
-                match timeout(timeout_duration, TcpStream::connect(&address)).await {
-                    Ok(Ok(stream)) => {
-                        conn = Some(stream);
-                    }
-                    Ok(Err(e)) => {
-                        last_err = Some((ErrorKind::Unknown, e.to_string()));
-                    }
-                    Err(_) => {
-                        last_err = Some((ErrorKind::Timeout, "connection timed out".to_string()));
-                    }
-                }
-            }
-
-            let tcp_stream = match conn {
-                Some(s) => s,
-                None => {
-                    let (kind, msg) = match last_err {
-                        Some((k, m)) => (k, m),
-                        _ => (ErrorKind::Unknown, "TCP connect failed".to_string()),
-                    };
+            // 1. TCP Connect (shared logic)
+            let tcp_stream = match try_connect(&target.ips, &target.host, target.port, timeout_duration).await {
+                Ok(stream) => stream,
+                Err((kind, msg)) => {
                     result.finish(ProbeResultStatus::Failed, kind, &msg);
                     return result;
                 }
             };
 
-            if let Ok(addr) = tcp_stream.peer_addr() {
-                result.remote_address = Some(addr.to_string());
-            }
-            if let Ok(addr) = tcp_stream.local_addr() {
-                result.local_address = Some(addr.to_string());
-            }
+            record_addresses(&tcp_stream, &mut result);
 
             // 2. Setup TLS Config
             let server_name = match ServerName::try_from(target.host.clone()) {
@@ -181,17 +140,15 @@ impl Probe for TlsProbe {
                 Ok(Err(e)) => {
                     result.add_observation("TLS handshake did not complete");
                     let err_str = e.to_string();
-                    let mut kind = ErrorKind::Reset;
-                    let mut res_status = ProbeResultStatus::Failed;
 
                     if e.kind() == std::io::ErrorKind::TimedOut {
-                        kind = ErrorKind::Timeout;
-                        res_status = ProbeResultStatus::Timeout;
+                        result.finish(ProbeResultStatus::Timeout, ErrorKind::Timeout, &err_str);
                     } else if err_str.contains("certificate") || err_str.contains("cert") || err_str.contains("WebPki") {
-                        kind = ErrorKind::Certificate;
+                        result.finish(ProbeResultStatus::Failed, ErrorKind::Certificate, &err_str);
+                    } else {
+                        let (status, kind) = classify_error_string(&err_str);
+                        result.finish(status, kind, &err_str);
                     }
-
-                    result.finish(res_status, kind, &err_str);
                 }
                 Err(_) => {
                     result.add_observation("TLS handshake did not complete");
@@ -217,7 +174,7 @@ mod tests {
         let target = Target {
             url: url::Url::parse("https://example.invalid").unwrap(),
             host: "127.0.0.1".to_string(),
-            port: 12345, // invalid port, nothing listening
+            port: 12345,
             ips: vec![],
         };
 

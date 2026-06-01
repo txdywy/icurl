@@ -103,6 +103,7 @@ pub async fn execute(cfg: &Config) -> Result<RequestResult> {
 
     let mut target_url = cfg.url.clone();
 
+    // When URL host is an IP, resolve it to the real hostname for proper SNI/Host header
     if !cfg.host.is_empty() {
         if let Ok(mut parsed_url) = url::Url::parse(&cfg.url) {
             if let Some(host_str) = parsed_url.host_str() {
@@ -118,25 +119,16 @@ pub async fn execute(cfg: &Config) -> Result<RequestResult> {
     }
 
     match cfg.protocol {
-        Protocol::Http11 => {
-            client_builder = client_builder.http1_only();
-        }
-        Protocol::Http2 => {
-            client_builder = client_builder.http2_prior_knowledge();
-        }
-        Protocol::Http3 => {
-            client_builder = client_builder.http3_prior_knowledge();
-        }
-        Protocol::Http3Only => {
-            client_builder = client_builder.http3_prior_knowledge();
-        }
+        Protocol::Http11 => { client_builder = client_builder.http1_only(); }
+        Protocol::Http2 => { client_builder = client_builder.http2_prior_knowledge(); }
+        Protocol::Http3 | Protocol::Http3Only => { client_builder = client_builder.http3_prior_knowledge(); }
         Protocol::Auto => {}
     }
 
     let client = client_builder.build()?;
 
     let method = cfg.effective_method();
-    let mut request_builder = client.request(method.clone(), &target_url);
+    let mut request_builder = client.request(method, &target_url);
 
     if !cfg.host.is_empty() {
         let mut headers = HeaderMap::new();
